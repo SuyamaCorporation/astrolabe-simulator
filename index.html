@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>アストロラーベ（星盤）シミュレータ</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  canvas { display: block; touch-action: none; }
+  input[type=range] { accent-color: #d97706; }
+  input[type=number], input[type=datetime-local] { color-scheme: dark; }
+</style>
+</head>
+<body class="bg-gray-950 text-gray-100 min-h-screen flex flex-col">
+<header class="bg-gray-900 border-b border-gray-800 px-4 py-3">
+  <h1 class="text-lg font-bold text-amber-400">アストロラーベ（星盤）シミュレータ</h1>
+</header>
+<main class="flex flex-col lg:flex-row flex-1 overflow-hidden">
+  <aside class="lg:w-72 bg-gray-900 border-r border-gray-800 p-4 flex flex-col gap-4 overflow-y-auto">
+    <section>
+      <h2 class="text-xs font-semibold text-gray-400 uppercase mb-2">観測地点</h2>
+      <label class="text-xs text-gray-400 flex justify-between mb-1"><span>緯度 (°)</span><span id="lat-val" class="text-amber-400">35.7</span></label>
+      <input id="latitude" type="range" min="-90" max="90" value="35.7" step="0.1" class="w-full mb-3" aria-label="緯度">
+      <div class="flex gap-2">
+        <button class="text-xs bg-gray-700 hover:bg-gray-600 rounded px-2 py-1" onclick="setLat(35.7)">東京</button>
+        <button class="text-xs bg-gray-700 hover:bg-gray-600 rounded px-2 py-1" onclick="setLat(51.5)">ロンドン</button>
+        <button class="text-xs bg-gray-700 hover:bg-gray-600 rounded px-2 py-1" onclick="setLat(0)">赤道</button>
+      </div>
+    </section>
+    <section>
+      <h2 class="text-xs font-semibold text-gray-400 uppercase mb-2">日時 (UT)</h2>
+      <input id="datetime" type="datetime-local" value="2026-11-05T12:00" class="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:border-amber-500" aria-label="日時">
+      <button id="btn-now" class="mt-2 w-full text-xs bg-gray-700 hover:bg-gray-600 rounded px-2 py-1" aria-label="現在時刻">現在時刻を使用</button>
+    </section>
+    <section>
+      <h2 class="text-xs font-semibold text-gray-400 uppercase mb-2">計算結果</h2>
+      <div class="bg-gray-800 rounded p-3 text-xs flex flex-col gap-2">
+        <div class="flex justify-between"><span class="text-gray-400">太陽高度</span><span id="sun-alt" class="text-amber-300"></span></div>
+        <div class="flex justify-between"><span class="text-gray-400">太陽方位</span><span id="sun-az" class="text-amber-300"></span></div>
+        <div class="flex justify-between"><span class="text-gray-400">日の出</span><span id="sunrise" class="text-orange-300"></span></div>
+        <div class="flex justify-between"><span class="text-gray-400">日没</span><span id="sunset" class="text-orange-300"></span></div>
+        <div class="flex justify-between"><span class="text-gray-400">恒星時</span><span id="lst" class="text-cyan-300"></span></div>
+      </div>
+    </section>
+    <section>
+      <h2 class="text-xs font-semibold text-gray-400 uppercase mb-2">主要恒星</h2>
+      <div id="star-list" class="text-xs flex flex-col gap-1 max-h-48 overflow-y-auto"></div>
+    </section>
+  </aside>
+  <div class="flex-1 flex items-center justify-center bg-gray-950 p-4">
+    <canvas id="canvas" aria-label="アストロラーベ描画キャンバス"></canvas>
+  </div>
+</main>
+<script>
+const STARS = [
+  { name: 'シリウス', ra: 6.7525, dec: -16.7161, mag: -1.46 },
+  { name: 'カノープス', ra: 6.3992, dec: -52.6957, mag: -0.72 },
+  { name: 'アークトゥルス', ra: 14.2612, dec: 19.1822, mag: -0.05 },
+  { name: 'ベガ', ra: 18.6156, dec: 38.7836, mag: 0.03 },
+  { name: 'カペラ', ra: 5.2778, dec: 45.9980, mag: 0.08 },
+  { name: 'リゲル', ra: 5.2423, dec: -8.2016, mag: 0.12 },
+  { name: 'プロキオン', ra: 7.6553, dec: 5.2250, mag: 0.34 },
+  { name: 'アケルナル', ra: 1.6286, dec: -57.2367, mag: 0.46 },
+  { name: 'ベテルギウス', ra: 5.9195, dec: 7.4071, mag: 0.50 },
+  { name: 'アルタイル', ra: 19.8463, dec: 8.8683, mag: 0.77 },
+  { name: 'アルデバラン', ra: 4.5987, dec: 16.5093, mag: 0.85 },
+  { name: 'スピカ', ra: 13.4199, dec: -11.1613, mag: 0.98 },
+  { name: 'アンタレス', ra: 16.4901, dec: -26.4320, mag: 1.09 },
+  { name: 'ポルックス', ra: 7.7553, dec: 28.0262, mag: 1.14 },
+  { name: 'フォーマルハウト', ra: 22.9608, dec: -29.6224, mag: 1.16 },
+  { name: 'デネブ', ra: 20.6905, dec: 45.2803, mag: 1.25 },
+  { name: 'レグルス', ra: 10.1395, dec: 11.9672, mag: 1.36 },
+  { name: 'アダラ', ra: 6.9771, dec: -28.9722, mag: 1.50 },
+  { name: 'カストル', ra: 7.5767, dec: 31.8883, mag: 1.58 },
+  { name: 'ガクルックス', ra: 12.5194, dec: -57.1133, mag: 1.63 }
+];
+
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+
+function setLat(v) {
+  document.getElementById('latitude').value = v;
+  document.getElementById('lat-val').textContent = v.toFixed(1);
+  update();
+}
+
+function getParams() {
+  const lat = parseFloat(document.getElementById('latitude').value);
+  const dtStr = document.getElementById('datetime').value;
+  const dt = dtStr ? new Date(dtStr + ':00Z') : new Date();
+  return { lat, dt };
+}
+
+function julianDay(dt) {
+  return dt.getTime() / 86400000 + 2440587.5;
+}
+
+function solarPosition(dt, lat) {
+  const jd = julianDay(dt);
+  const n = jd - 2451545.0;
+  const L = (280.460 + 0.9856474 * n) % 360;
+  const g = ((357.528 + 0.9856003 * n) % 360) * Math.PI / 180;
+  const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * Math.PI / 180;
+  const eps = 23.439 * Math.PI / 180;
+  const sinDec = Math.sin(eps) * Math.sin(lambda);
+  const dec = Math.asin(sinDec);
+  const cosDec = Math.cos(dec);
+  const ra = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda));
+
+  const ut = (dt.getUTCHours() + dt.getUTCMinutes() / 60 + dt.getUTCSeconds() / 3600);
+  const D = jd - 2451545.0;
+  const GMST = (6.697375 + 0.0657098242 * D + ut) % 24;
+  const lon = 0;
+  const LST = ((GMST + lon / 15) + 24) % 24;
+  const HA = (LST * 15 - ra * 180 / Math.PI) * Math.PI / 180;
+  const latR = lat * Math.PI / 180;
+  const sinAlt = Math.sin(latR) * Math.sin(dec) + Math.cos(latR) * Math.cos(dec) * Math.cos(HA);
+  const alt = Math.asin(sinAlt) * 180 / Math.PI;
+  const cosAz = (Math.sin(dec) - Math.sin(latR) * sinAlt) / (Math.cos(latR) * Math.cos(Math.asin(sinAlt)));
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz))) * 180 / Math.PI;
+  if (Math.sin(HA) > 0) az = 360 - az;
+  return { alt, az, dec: dec * 180 / Math.PI, ra: ra * 12 / Math.PI, LST };
+}
+
+function sunriseSet(dt, lat) {
+  const latR = lat * Math.PI / 180;
+  const jd = julianDay(dt);
+  const n = jd - 2451545.0;
+  const L = (280.460 + 0.9856474 * n) % 360;
+  const g = ((357.528 + 0.9856003 * n) % 360) * Math.PI / 180;
+  const lambda = (L + 1.915 * Math.sin(g) + 0.020 * Math.sin(2 * g)) * Math.PI / 180;
+  const eps = 23.439 * Math.PI / 180;
+  const dec = Math.asin(Math.sin(eps) * Math.sin(lambda));
+  const cosH = (Math.cos((-0.833) * Math.PI / 180) - Math.sin(latR) * Math.sin(dec)) / (Math.cos(latR) * Math.cos(dec));
+  if (Math.abs(cosH) > 1) return null;
+  const H = Math.acos(cosH) * 180 / Math.PI;
+  const RA = Math.atan2(Math.cos(eps) * Math.sin(lambda), Math.cos(lambda)) * 12 / Math.PI;
+  const D = jd - 2451545.0;
+  const GMST = (6.697375 + 0.0657098242 * D) % 24;
+  const transit = RA - GMST;
+  const rise = ((transit - H / 15 + 24) % 24);
+  const set = ((transit + H / 15 + 24) % 24);
+  function fmt(h) {
+    const hh = Math.floor(((h % 24) + 24) % 24);
+    const mm = Math.floor((h * 60) % 60);
+    return String(hh).padStart(2,'0') + ':' + String(mm).padStart(2,'0');
+  }
+  return { rise: fmt(rise), set: fmt(set) };
+}
+
+function starPosition(star, LST, lat) {
+  const ha = (LST - star.ra + 24) % 24 * 15 * Math.PI / 180;
+  const decR = star.dec * Math.PI / 180;
+  const latR = lat * Math.PI / 180;
+  const sinAlt = Math.sin(latR) * Math.sin(decR) + Math.cos(latR) * Math.cos(decR) * Math.cos(ha);
+  const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt))) * 180 / Math.PI;
+  const cosAz = (Math.sin(decR) - Math.sin(latR) * sinAlt) / (Math.cos(latR) * Math.cos(Math.asin(sinAlt)));
+  let az = Math.acos(Math.max(-1, Math.min(1, cosAz))) * 180 / Math.PI;
+  if (Math.sin(ha) > 0) az = 360 - az;
+  return { alt, az };
+}
+
+function altazToCanvas(alt, az, cx, cy, r) {
+  const dist = r * (90 - alt) / 90;
+  const azR = (az - 90) * Math.PI / 180;
+  return [cx + dist * Math.cos(azR), cy + dist * Math.sin(azR)];
+}
+
+function drawAstrolabe(lat, dt) {
+  const size = Math.min(canvas.width, canvas.height);
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const R = size / 2 - 10;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, R);
+  bg.addColorStop(0, '#1a1000');
+  bg.addColorStop(1, '#0a0800');
+  ctx.fillStyle = bg;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.strokeStyle = '#78350f';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.arc(cx, cy, R, 0, Math.PI * 2);
+  ctx.stroke();
+
+  for (let alt = 0; alt <= 90; alt += 15) {
+    const rr = R * (90 - alt) / 90;
+    ctx.strokeStyle = alt === 0 ? '#92400e' : '#374151';
+    ctx.lineWidth = alt === 0 ? 1.5 : 0.5;
+    ctx.setLineDash(alt === 0 ? [] : [3, 4]);
+    ctx.beginPath();
+    ctx.arc(cx, cy, rr, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    if (alt > 0 && alt < 90) {
+      ctx.fillStyle = '#6b7280';
+      ctx.font = `${size * 0.022}px sans-serif`;
+      ctx.fillText(alt + '°', cx + rr + 2, cy - 3);
+    }
+  }
+
+  for (let az = 0; az < 360; az += 15) {
+    const azR = (az - 90) * Math.PI / 180;
+    ctx.strokeStyle = az % 90 === 0 ? '#92400e' : '#374151';
+    ctx.lineWidth = az % 90 === 0 ? 1 : 0.5;
+    ctx.setLineDash(az % 90 === 0 ? [] : [2, 5]);
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + R * Math.cos(azR), cy + R * Math.sin(azR));
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  const dirs = [['N', 0], ['E', 90], ['S', 180], ['W', 270]];
+  ctx.font = `bold ${size * 0.03}px sans-serif`;
+  ctx.fillStyle = '#d97706';
+  for (const [lbl, az] of dirs) {
+    const azR = (az - 90) * Math.PI / 180;
+    const tx = cx + (R + 14) * Math.cos(azR);
+    const ty = cy + (R + 14) * Math.sin(azR);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(lbl, tx, ty);
+  }
+
+  const sol = solarPosition(dt, lat);
+  const ss = sunriseSet(dt, lat);
+  document.getElementById('sun-alt').textContent = sol.alt.toFixed(1) + '°';
+  document.getElementById('sun-az').textContent = sol.az.toFixed(1) + '°';
+  document.getElementById('sunrise').textContent = ss ? ss.rise + ' UT' : '---';
+  document.getElementById('sunset').textContent = ss ? ss.set + ' UT' : '---';
+  document.getElementById('lst').textContent = sol.LST.toFixed(4) + 'h';
+
+  if (sol.alt > -18) {
+    const [sx, sy] = altazToCanvas(sol.alt, sol.az, cx, cy, R);
+    const grad = ctx.createRadialGradient(sx, sy, 0, sx, sy, 18);
+    grad.addColorStop(0, 'rgba(255,220,80,1)');
+    grad.addColorStop(1, 'rgba(255,220,80,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(sx, sy, 18, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(sx, sy, 7, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#fef3c7';
+    ctx.font = `${size * 0.022}px sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText('☀', sx, sy - 8);
+  }
+
+  const starListEl = document.getElementById('star-list');
+  starListEl.innerHTML = '';
+  const starData = [];
+  for (const star of STARS) {
+    const sp = starPosition(star, sol.LST, lat);
+    starData.push({ ...star, ...sp });
+  }
+  starData.sort((a, b) => b.alt - a.alt);
+
+  for (const star of starData) {
+    if (star.alt > 0) {
+      const [stx, sty] = altazToCanvas(star.alt, star.az, cx, cy, R);
+      const brightness = Math.max(0.4, 1 - (star.mag + 1.5) / 4);
+      const r = Math.max(1.5, 3 - star.mag * 0.5);
+      ctx.beginPath();
+      ctx.arc(stx, sty, r, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(200,220,255,${brightness})`;
+      ctx.fill();
+      if (r > 2) {
+        ctx.fillStyle = `rgba(180,200,255,${brightness * 0.6})`;
+        ctx.font = `${size * 0.018}px sans-serif`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(star.name, stx + 4, sty - 2);
+      }
+    }
+    const row = document.createElement('div');
+    row.className = 'flex justify-between text-gray-' + (star.alt > 0 ? '200' : '500');
+    const nameEl = document.createElement('span');
+    nameEl.textContent = star.name;
+    const altEl = document.createElement('span');
+    altEl.className = star.alt > 0 ? 'text-cyan-400' : 'text-gray-600';
+    altEl.textContent = star.alt.toFixed(1) + '°';
+    row.appendChild(nameEl);
+    row.appendChild(altEl);
+    starListEl.appendChild(row);
+  }
+
+  ctx.strokeStyle = '#d97706';
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.moveTo(cx - 10, cy);
+  ctx.lineTo(cx + 10, cy);
+  ctx.moveTo(cx, cy - 10);
+  ctx.lineTo(cx, cy + 10);
+  ctx.stroke();
+
+  for (let az = 0; az < 360; az += 10) {
+    const azR = (az - 90) * Math.PI / 180;
+    const inner = R + 2, outer = R + (az % 30 === 0 ? 10 : 6);
+    ctx.strokeStyle = '#78350f';
+    ctx.lineWidth = az % 30 === 0 ? 1.5 : 0.8;
+    ctx.beginPath();
+    ctx.moveTo(cx + inner * Math.cos(azR), cy + inner * Math.sin(azR));
+    ctx.lineTo(cx + outer * Math.cos(azR), cy + outer * Math.sin(azR));
+    ctx.stroke();
+    if (az % 30 === 0) {
+      const azR2 = (az - 90) * Math.PI / 180;
+      ctx.fillStyle = '#d97706';
+      ctx.font = `${size * 0.025}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(az + '°', cx + (R + 22) * Math.cos(azR2), cy + (R + 22) * Math.sin(azR2));
+    }
+  }
+}
+
+function update() {
+  const { lat, dt } = getParams();
+  const size = Math.min(canvas.parentElement.clientWidth - 32, canvas.parentElement.clientHeight - 32, 580);
+  canvas.width = size;
+  canvas.height = size;
+  drawAstrolabe(lat, dt);
+}
+
+document.getElementById('latitude').addEventListener('input', function() {
+  document.getElementById('lat-val').textContent = parseFloat(this.value).toFixed(1);
+  update();
+});
+document.getElementById('datetime').addEventListener('change', update);
+document.getElementById('btn-now').addEventListener('click', () => {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+  document.getElementById('datetime').value = local.toISOString().slice(0, 16);
+  update();
+});
+
+window.addEventListener('resize', update);
+update();
+</script>
+</body>
+</html>
